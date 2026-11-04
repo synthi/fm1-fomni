@@ -13,8 +13,8 @@
  *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet, and
  *                  when the settings pages are left: a palette or a size is played with, then kept) */
 
-enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, NVIEWS };
-static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2"};
+enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, V_ENV, NVIEWS };
+static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2", "Env"};
 /* the four knobs of each page: a parameter, or one of these */
 enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PALETTE, K_SIZE, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
@@ -24,6 +24,7 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, P_OCTAVE},
     {P_TUNE, P_MIDI, K_LEDS, K_NONE},
     {K_PALETTE, K_SIZE, K_NONE, K_NONE},
+    {P_ATKH, P_RELH, P_ATKC, P_RELC},
 };
 
 static const uint8_t WHITE_K[OM_NSTR] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
@@ -377,6 +378,7 @@ static void button(int b)
     case B_FX: set_view(V_SOUND); break;
     case B_SEL: set_view(V_PADS); break;
     case B_GLO: set_view(ui.view == V_SETUP ? V_SETUP2 : V_SETUP); break;   /* GLO again goes on */
+    case B_ENV: set_view(V_ENV); break;                                      /* a tap of ENV (held it is the minor row) */
     case B_EDIT: set_view((ui.view + 1) % NVIEWS); break;
     case B_PLAY:
         if (om_playing) {
@@ -510,6 +512,17 @@ static void midi_in(void)
                 }
             }
             om_strum(best);
+        } else if ((st == 0x80u || st == 0x90u) && !v) {
+            int s, best = 0, bd = 999;              /* the note let go: the nearest string's release */
+            for (s = 0; s < OM_NSTR; s++) {
+                int d = om_str_note[s] - (int)n;
+                d = d < 0 ? -d : d;
+                if (d < bd) {
+                    bd = d;
+                    best = s;
+                }
+            }
+            om_damp(best);
         } else if (st == 0x91u || st == 0x81u) {
             if (st == 0x91u && v)
                 kb_held[n >> 5] |= 1u << (n & 31u);
@@ -536,15 +549,21 @@ static void input(void)
             ui.btn_used &= ~m;
             if (i == B_PLAY)                   /* transport on the press */
                 button((int)i);
-        } else if (!(ui.btn_used & m) && i != B_PLAY && i != B_ENV && i != B_LFO) {
+        } else if (!(ui.btn_used & m) && i == B_ENV) {
+            button(B_ENV);                     /* a tap: the ENV page (held with a black key, the minor row) */
+        } else if (!(ui.btn_used & m) && i != B_PLAY && i != B_LFO) {
             button((int)i);
         }
     }
     ch = keys ^ ui.keys;
-    ui.keys = keys;
-    for (i = 0; i < OM_NSTR; i++)              /* strings first: a strum is the fastest thing here */
-        if ((ch & keys) >> WHITE_K[i] & 1u)
+    for (i = 0; i < OM_NSTR; i++) {            /* strings first: a strum is the fastest thing here */
+        uint32_t m = 1u << WHITE_K[i];
+        if ((ch & keys) & m)
             om_strum((int)i);
+        else if ((ch & ui.keys) & m)           /* the key let go: its string's release (Str R) */
+            om_damp((int)i);
+    }
+    ui.keys = keys;
     for (i = 0; i < NPADS; i++)
         if (ch >> BLACK_K[i] & 1u) {
             if (keys >> BLACK_K[i] & 1u)
@@ -796,6 +815,46 @@ static void draw_pads(int32_t y0)
     }
 }
 
+/* The ENV page: the two envelopes, drawn from their four times. Attack linear, release exponential,
+ * both on a log scale (a 10 s release cannot be to scale beside a 5 ms attack). The strings in the
+ * harp's colour, the chord and its bass in the chord's: the knob labels say which is which. */
+static int32_t env_width(int32_t span, int v)   /* the knob's 0..100 as a width: already a log scale */
+{
+    if (v <= 0)
+        return 0;
+    if (v > 100)
+        v = 100;
+    return span * v / 100;
+}
+
+static void env_shape(int32_t x0, int32_t w, int32_t y0, int32_t h, int atk_ms, int rel_ms, uint16_t c)
+{
+    int32_t aw = 2 + env_width(w / 2 - 4, atk_ms), rw = 2 + env_width(w / 2 - 4, rel_ms);
+    int32_t i, top = y0 + 2, base = y0 + h - 3;
+    for (i = 0; i < w; i++) {
+        float lvl;
+        int32_t y;
+        if (i < aw) {
+            lvl = (float)i / (float)aw;              /* the attack: a straight line up */
+        } else if (i < w - rw) {
+            lvl = 1.0f;                              /* held */
+        } else {
+            float u = (float)(i - (w - rw)) / (float)(rw > 0 ? rw : 1);
+            lvl = 1.0f / (1.0f + 9.0f * u * u);      /* the release: the shape of an exponential */
+        }
+        y = base - (int32_t)(lvl * (float)(base - top));
+        cv_rect(x0 + i, y, 1, base - y + 1, c);
+    }
+    cv_rect(x0, base + 2, w, 1, K_LINE);
+}
+
+static void draw_env(int32_t y0, int32_t h)
+{
+    env_shape(6, 110, y0, h, proj.par[P_ATKH], proj.par[P_RELH], K_HARP);
+    cv_rect(120, y0, 1, h, K_LINE);
+    env_shape(124, 110, y0, h, proj.par[P_ATKC], proj.par[P_RELC], K_CHORD);
+}
+
 /* Setup 2: the palette itself, big, with its six colours as samples. The pads below are drawn in it, so
  * the page is the preview of what is being chosen. */
 static void draw_theme_page(void)
@@ -834,6 +893,9 @@ static void draw_main(void)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
     if (ui.view == V_SETUP2)
         h = hash(hash(h, (uint32_t)proj.theme), (uint32_t)proj.large);
+    if (ui.view == V_ENV)
+        h = hash(hash(h, (uint32_t)proj.par[P_ATKH] << 16 | (uint32_t)proj.par[P_RELH]),
+                 (uint32_t)proj.par[P_ATKC] << 16 | (uint32_t)proj.par[P_RELC]);
     if (h == ui.sig[1])
         return;
     ui.sig[1] = h;
@@ -864,6 +926,8 @@ static void draw_main(void)
         }
         if (ui.view == V_RHYTHM)
             draw_rhythm(34, 42);
+        else if (ui.view == V_ENV)
+            draw_env(34, 42);
         else
             draw_strings(34, 42);
     }

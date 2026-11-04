@@ -35,6 +35,8 @@ enum {
     P_REVERB, P_SPACE, P_TUNE, P_CREV,                /* the strings' reverb send, reverb size, tune (cents),
                                                        * the chord and bass's reverb send (the drums are dry) */
     P_TRANSPOSE, P_OCTAVE, P_WIDTH, P_MIDI,           /* semitones, harp octave, stereo width, MIDI out */
+    P_ATKH, P_RELH, P_ATKC, P_RELC,                   /* the envelopes, ms (0..10000): the strings' attack (linear)
+                                                       * and release (exponential), and the chord and bass's */
     P_NPARAMS
 };
 typedef struct {
@@ -60,6 +62,7 @@ void om_set(int param, int value);
 void om_chord(int root, int type);             /* the chord the harp, chord and bass play from now on */
 void om_gate(int on);                          /* a chord pad held (1) / released (0): the chord section */
 void om_strum(int string);                     /* pluck string 0..15 */
+void om_damp(int string);                      /* let go: the string enters its release (Str R) */
 void om_play(int on);                          /* the rhythm: start (from its first step) / stop */
 void om_panic(void);                           /* everything quiet, now */
 /* MIDI clock in (the main loop passes it on): OM_CLK_TICK (F8), START, CONTINUE, STOP. While ticks keep

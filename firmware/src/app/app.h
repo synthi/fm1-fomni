@@ -11,7 +11,7 @@
 #define OM_VERSION "DEV"
 #endif
 #define PROJ_MAGIC 0x494E4D4Fu           /* "OMNI" */
-#define PROJ_FORMAT 2u                   /* 2: Lo-fi's slot became Chord rev (0.2); a format 1 loads */
+#define PROJ_FORMAT 3u                   /* 3: the envelopes' four times (P_ATKH..P_RELC); 2 and 1 load */
 #define NPADS 11                         /* the black keys: chord buttons */
 
 typedef struct {

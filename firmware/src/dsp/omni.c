@@ -20,16 +20,33 @@ const char *const OM_NOTE_NAME[12] = {"C", "C#", "D", "Eb", "E", "F", "F#", "G",
 const int8_t OM_TYPE_TONES[CH_NTYPES][3] = {
     {0, 4, 7}, {0, 3, 7}, {0, 4, 10}, {0, 4, 11}, {0, 3, 10}, {0, 3, 6}, {0, 4, 8}, {0, 5, 7}, {0, 4, 2}};
 
+#define ENV_STEPS 100                     /* an envelope time's range: 0 ms .. 10 s, geometric */
 static const om_param_t PARAMS[P_NPARAMS] = {
     {"Voice 1", 0, 100, 80}, {"Voice 2", 0, 100, 45}, {"Sustain", 0, 100, 50}, {"Chord", 0, 100, 60},
     {"Rhythm", 0, OM_NRHYTHM - 1, 0}, {"Tempo", 60, 240, 116}, {"Drums", 0, 100, 70}, {"Auto bass", 0, 1, 1},
     {"Reverb", 0, 100, 30}, {"Space", 0, 100, 55}, {"Tune", -50, 50, 0}, {"Chord rev", 0, 100, 25},
     {"Transpose", -6, 6, 0}, {"Octave", -1, 1, 0}, {"Width", 0, 100, 60}, {"MIDI out", 0, 1, 1},
+    /* the envelopes: 0..100 steps, geometric, 0 ms to 10 s (a linear 0..10000 would want 10000
+     * detents); 0 is the pluck as it was, and the chord's release the 0.18 s it had */
+    {"Str A", 0, ENV_STEPS, 0}, {"Str R", 0, ENV_STEPS, ENV_STEPS}, {"Chd A", 0, ENV_STEPS, 0},
+    {"Chd R", 0, ENV_STEPS, 42},
 };
 
 const om_rhythm_t *om_rhythm(int i) { return &OM_RHYTHM[(unsigned)i < OM_NRHYTHM ? i : 0]; }
 
 const om_param_t *om_param_info(int i) { return (i >= 0 && i < P_NPARAMS) ? &PARAMS[i] : &PARAMS[0]; }
+
+/* An envelope time: the knob's step (0..ENV_STEPS) as milliseconds, geometric: 0, then 10 .. 10000.
+ * Geometric because 0..10000 ms in 1 ms steps is 10000 detents, and because the ear hears an envelope
+ * in proportion (a 5 ms and a 50 ms attack differ; a 5000 and a 5050 do not). */
+static int env_ms(int v)
+{
+    if (v <= 0)
+        return 0;
+    if (v >= ENV_STEPS)
+        return 10000;
+    return (int)(10.0f * fm_exp2f((float)(v - 1) * (9.9658f / (float)(ENV_STEPS - 1))) + 0.5f);
+}
 
 static void itoa_s(int v, char *b)
 {
@@ -65,6 +82,28 @@ void om_param_text(int i, int v, char *b)
         b[k] = 0;
         return;
     }
+    if (i >= P_ATKH && i <= P_RELC) {              /* a time: "180 ms", "1.2s", "10.0s" */
+        char *w = b;
+        int k = 0, ms = env_ms(v);
+        if (ms < 1000) {
+            itoa_s(ms, b);
+            while (b[k])
+                k++;
+            b[k++] = ' ';
+            b[k++] = 'm';
+            b[k++] = 's';
+            b[k] = 0;
+            return;
+        }
+        itoa_s((ms + 50) / 1000, w);              /* whole seconds */
+        while (w[k])
+            k++;
+        w[k++] = '.';
+        w[k++] = (char)('0' + ((ms + 50) / 100) % 10);
+        w[k++] = 's';
+        w[k] = 0;
+        return;
+    }
     if ((i == P_TRANSPOSE || i == P_OCTAVE || i == P_TUNE) && v > 0) {
         *b++ = '+';
     }
@@ -89,7 +128,7 @@ void om_voicing(int root, int type, int transpose, int octave, uint8_t harp[OM_N
 }
 
 /* ------------------------------------------------------------ commands --- */
-enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK };
+enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK, C_DAMP };
 #define QN 64u
 static uint32_t q[QN];
 static volatile uint32_t q_w, q_r;
@@ -106,6 +145,7 @@ void om_set(int p, int v) { post(C_SET, p, v); }
 void om_chord(int root, int type) { post(C_CHORD, root, type); }
 void om_gate(int on) { post(C_GATE, on, 0); }
 void om_strum(int s) { post(C_STRUM, s, 0); }
+void om_damp(int s) { post(C_DAMP, s, 0); }
 void om_play(int on) { post(C_PLAY, on, 0); }
 void om_panic(void) { post(C_PANIC, 0, 0); }
 void om_clock(int msg) { post(C_CLOCK, msg, 0); }
@@ -120,6 +160,8 @@ volatile uint8_t om_ext;
 
 static int16_t par[P_NPARAMS];
 static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate;
+static float atk_h_inc = 1.0f, rel_h_mul = 1.0f;  /* the strings' envelope, per sample */
+static float atk_c_inc = 1.0f, rel_c_mul = 1.0f;  /* the chord and its bass's */
 static float pan_l[OM_NSTR], pan_r[OM_NSTR];
 static int root, type;
 static uint8_t harp_n[OM_NSTR], chord_n[OM_NCHORD], bass_n;
@@ -153,8 +195,9 @@ static inline float adv(float pos, float inc)
 /* ---- harp strings */
 typedef struct {
     float pos, inc, v, g, y1, y2, k, c, m, modamt;
+    float a, r;                                /* the envelope's attack ramp (0..1) and release (1..0) */
     uint16_t shim_off;
-    uint8_t on, note;
+    uint8_t on, note, rel;
 } str_t;
 static str_t str[OM_NSTR];
 
@@ -182,6 +225,9 @@ static void strum(int s)
     v->note = (uint8_t)n;
     v->inc = note_inc(n);
     v->v = 1.0f;
+    v->a = atk_h_inc < 1.0f ? 0.0f : 1.0f;        /* a pluck, or a ramp from silence (Str A) */
+    v->r = 1.0f;
+    v->rel = 0;
     /* the voice filter: Chordian's per-note brightness, darker as the note decays */
     base = fm_maxf(((18.0f - u) / 18.0f) * 0.31f + 0.34f, 0.05f);
     v->k = fm_powf(base, 2.85f);
@@ -196,6 +242,7 @@ static void strum(int s)
 enum { E_OFF, E_DEC, E_SUS, E_REL, E_BDEC, E_CUT };
 typedef struct {
     float pos, inc, v, g;
+    float a, r;                                /* the envelope's attack ramp (0..1) and release (1..0) */
     uint8_t st, note;
 } cv_t;
 static cv_t chv[OM_NCHORD], bsv;
@@ -217,6 +264,8 @@ static void chord_cmd(char c)
             chv[i].note = chord_n[i];
             chv[i].inc = note_inc(chord_n[i]);
             chv[i].v = 1.0f;
+            chv[i].a = atk_c_inc < 1.0f ? 0.0f : 1.0f;
+            chv[i].r = 1.0f;
             chv[i].st = c == 'T' ? E_DEC : E_REL;
             midi(0x91, chord_n[i], 90);
         }
@@ -236,6 +285,8 @@ static void bass_cmd(char c, char which)
         bsv.note = (uint8_t)bass_note();
         bsv.inc = note_inc(bsv.note);
         bsv.v = 1.0f;
+        bsv.a = atk_c_inc < 1.0f ? 0.0f : 1.0f;
+        bsv.r = 1.0f;
         bsv.st = c == 'T' ? E_SUS : E_BDEC;
         midi(0x92, bsv.note, 100);
     } else if ((c == 'R' || c == 'N') && bsv.st != E_OFF) {
@@ -451,6 +502,25 @@ static void apply(int p, int v)
         if (!v)
             om_midi_out(0xB0, 123, 0);            /* all notes off, as it goes quiet */
         break;
+    case P_ATKH: {
+        int ms = env_ms(v);
+        atk_h_inc = ms > 0 ? 1.0f / ((float)ms * 0.001f * OM_SR) : 1.0f;   /* linear, from silence */
+        break;
+    }
+    case P_RELH:
+    case P_RELC: {                                /* exponential: 60 dB in the time, as a synth's */
+        int ms = env_ms(v);
+        if (p == P_RELH)
+            rel_h_mul = ms > 0 ? fm_exp2f(-9.9658f / ((float)ms * 0.001f * OM_SR)) : 0.0f;
+        else
+            rel_c_mul = ms > 0 ? fm_exp2f(-9.9658f / ((float)ms * 0.001f * OM_SR)) : 0.0f;
+        break;
+    }
+    case P_ATKC: {
+        int ms = env_ms(v);
+        atk_c_inc = ms > 0 ? 1.0f / ((float)ms * 0.001f * OM_SR) : 1.0f;
+        break;
+    }
     default: break;
     }
 }
@@ -553,6 +623,10 @@ static void drain(void)
             if (a < OM_NSTR)
                 strum(a);
             break;
+        case C_DAMP:
+            if (a < OM_NSTR && str[a].on)
+                str[a].rel = 1;                   /* the key let go: the string's release (Str R) */
+            break;
         case C_PLAY:
             if (a && !om_playing)
                 play_start(1);
@@ -593,6 +667,7 @@ static void render_strings(uint32_t n)
     for (s = 0; s < OM_NSTR; s++) {
         str_t *v = &str[s];
         float pos = v->pos, y1 = v->y1, y2 = v->y2, e = v->v, g = v->g, c = v->c, m = v->m;
+        float av = v->a, rv = v->r;
         const float inc = v->inc, gl = pan_l[s], gr = pan_r[s];
         uint32_t j;
         if (!v->on) {
@@ -612,12 +687,24 @@ static void render_strings(uint32_t n)
             y1 += c * (x1 - y1);
             y2 += c * (x2 - y2);
             g += 0.05f * (e - g);
-            o = (y1 * g1 + y2 * g2) * g;
+            o = (y1 * g1 + y2 * g2) * g * (av * rv);
             mixl[j] += o * gl;
             mixr[j] += o * gr;
             send[j] += o * rsend;
             pos = adv(pos, inc);
             e -= sus_rate * (0.34f + 8.5f * e * e * e);
+            if (av < 1.0f) {                        /* the pluck's attack ramp (Str A) */
+                av += atk_h_inc;
+                if (av > 1.0f)
+                    av = 1.0f;
+            }
+            if (v->rel) {                           /* let go: the release (Str R), exponential */
+                rv *= rel_h_mul;
+                if (rv <= 1e-4f) {
+                    rv = 0.0f;
+                    e = 0.0f;
+                }
+            }
             if (e <= 0.0f) {
                 e = 0.0f;
                 if (g < 1e-4f) {
@@ -634,13 +721,18 @@ static void render_strings(uint32_t n)
         v->g = g;
         v->c = c;
         v->m = m;
-        om_str_level[s] = v->on ? e : 0.0f;
+        v->a = av;
+        v->r = rv;
+        om_str_level[s] = v->on ? e * av * rv : 0.0f;
     }
     shim_ph += shim_rate * (float)n;
     while (shim_ph >= 360.0f)
         shim_ph -= 360.0f;
 }
 
+/* One sample of a chord/bass envelope: the attack ramp (Chd A, linear, from the gate), the level it
+ * reaches (the OM's 0.95 after its short decay) and the release (Chd R, exponential). Returns the
+ * amplitude to play. */
 static float env_step(cv_t *v, int bass)
 {
     switch (v->st) {
@@ -659,13 +751,22 @@ static float env_step(cv_t *v, int bass)
         }
         break;
     case E_REL:
-        v->v -= bass ? (1.0f / OM_SR) / 0.333f * (0.5f + v->v) : (1.0f / OM_SR) / 0.18f;
+        v->r *= rel_c_mul;                        /* 60 dB in the Chd R time */
+        if (v->r <= 1e-4f) {
+            v->r = 0.0f;
+            v->v = 0.0f;
+        }
         break;
     case E_CUT:
         v->v -= (1.0f / OM_SR) / 0.004f;
         break;
     default:
         break;
+    }
+    if (v->a < 1.0f) {                            /* the attack, from the gate */
+        v->a += atk_c_inc;
+        if (v->a > 1.0f)
+            v->a = 1.0f;
     }
     if (v->v <= 0.0f) {
         v->v = 0.0f;
@@ -674,7 +775,7 @@ static float env_step(cv_t *v, int bass)
             midi(bass ? 0x82 : 0x81, v->note, 0);
         }
     }
-    return v->v;
+    return v->v * v->a * v->r;
 }
 
 static void render_chord(uint32_t n)
@@ -696,7 +797,7 @@ static void render_chord(uint32_t n)
             send[j] += o * csend;
             v->pos = adv(v->pos, v->inc);
         }
-        lvl = fm_maxf(lvl, v->v);
+        lvl = fm_maxf(lvl, v->v * v->a * v->r);    /* what is heard: the attack and release included */
     }
     om_chord_level = lvl;
     if (bsv.st != E_OFF) {
@@ -711,7 +812,7 @@ static void render_chord(uint32_t n)
             v->pos = adv(v->pos, v->inc);
         }
     }
-    om_bass_level = bsv.st != E_OFF ? bsv.v : 0.0f;
+    om_bass_level = bsv.st != E_OFF ? bsv.v * bsv.a * bsv.r : 0.0f;
 }
 
 static void render_drums(uint32_t n)

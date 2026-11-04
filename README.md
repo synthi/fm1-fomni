@@ -31,6 +31,7 @@ firmware back, and an FM-1 that keeps crashing starts in a safe mode.
 | SELECT | Tempo. |
 | ALGORITHM | Rhythm. |
 | PRESETS | Transpose (−6 to +6). |
+| ENV | The envelope page, tapped: the strings' attack and release on KNOB 1 and 2, the chord and bass's on KNOB 3 and 4. Held with a black key it is still the Omnichord's minor row. |
 | KNOB 1–4 | The four values on the screen (see the pages below). |
 | SAVE | Saves. FoMni also saves by itself a few seconds after a change, once it's quiet. |
 
@@ -47,6 +48,12 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
   (KNOB 2: Normal, four cards; Large, two rows of two, which gives the values more room). The page shows the
   palette's name, its colours as samples, and the chord buttons drawn in it. Leaving the settings keeps what
   was chosen: the project is saved on the way out.
+- **ENV: Envelope.** Str A and Str R (the strings' attack and release), Chd A and Chd R (the chord and its
+  bass). The attack is a straight line up, the release an exponential fall, both from 0 ms to 10 s (a
+  geometric knob: 0, 10 ms, then up to 10 s in a turn). The page draws the two envelopes, the strings in the
+  harp's colour and the chord in the chord's, and a black key or a white one auditions it. As a fresh FM-1
+  comes: a pluck as it always was (0 ms) with a 10 s release (the natural decay ends the string first), the
+  chord without an attack and with the 0.18 s release it had. SAVE keeps them.
 
 ### Colours
 
