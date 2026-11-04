@@ -11,6 +11,9 @@ said Rhythm page: Rhythm Rock 1, Tempo 116, Drums 70, Auto bass On
 tap FX
 tap GLO
 wait 300
+said Colours page: Palette AUBERGINE, Size Normal
+tap GLO
+wait 300
 said Setup page: Tune 0
 # a knob: its name and value, once it settles
 spin K1 3

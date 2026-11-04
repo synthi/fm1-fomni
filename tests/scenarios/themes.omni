@@ -1,15 +1,21 @@
-# The palettes and the size of the knob band (Setup 2: GLO pressed twice). One screenshot per palette
-# in build/scenarios/themes/, the two sizes, and the choice kept on leaving the settings (the settings
-# save the project on the way out) and across a reboot (it is in the flash project).
+# The palettes and the size of the knob band (the Colours page: GLO opens it, GLO again the rest of the
+# settings). One screenshot per palette in build/scenarios/themes/, the two sizes, and the choice kept on
+# leaving the settings (the settings save the project on the way out) and across a reboot (it is in the
+# flash project).
 wait 300
 tap GLO
-wait 150
-tap GLO
 wait 250
-expect view 5
+expect view 4                       # GLO opens the palette page
 expect theme 1                      # AUBERGINE: a fresh FM-1 starts dark
 expect large 0
 shot setup2.png
+# GLO again: the rest of the settings, and back
+tap GLO
+wait 150
+expect view 5
+tap GLO
+wait 150
+expect view 4
 # every palette, in order (KNOB 1)
 spin K1 -20                         # clamps to 0: CREAM
 wait 80
@@ -68,8 +74,29 @@ shot p17-p-terra.png
 spin K1 1
 wait 80
 shot p18-p-aqua.png
+spin K1 1
+wait 80
+shot p19-wada-carmine.png
+spin K1 1
+wait 80
+shot p20-wada-salvia.png
+spin K1 1
+wait 80
+shot p21-wada-violet.png
+spin K1 1
+wait 80
+shot p22-wada-cotinga.png
+spin K1 1
+wait 80
+shot p23-wada-umber.png
+spin K1 1
+wait 80
+shot p24-wada-eugenia.png
+spin K1 1
+wait 80
+shot p25-high-rose.png
 # the knob band's size (KNOB 2), on AUBERGINE and on AMBER NIGHT
-spin K1 -17
+spin K1 -24
 wait 80
 spin K2 1
 wait 100
@@ -94,12 +121,10 @@ wait 300
 expect theme 11
 expect large 0
 tap GLO
-wait 100
-tap GLO
 wait 250
 shot after-reboot.png
 # the screen reader hears the page and the palette's whole name (the knob only holds six characters)
 listen
 wait 100
 where
-said Setup 2 page: Palette AMBER NIGHT, Size Normal
+said Colours page: Palette AMBER NIGHT, Size Normal

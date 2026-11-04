@@ -13,8 +13,8 @@
  *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet, and
  *                  when the settings pages are left: a palette or a size is played with, then kept) */
 
-enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, V_ENV, NVIEWS };
-static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2", "Env"};
+enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_COLOURS, V_SETUP, V_ENV, NVIEWS };
+static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Colours", "Setup", "Env"};
 /* the four knobs of each page: a parameter, or one of these */
 enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PALETTE, K_SIZE, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
@@ -22,8 +22,8 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
     {P_REVERB, P_SPACE, P_WIDTH, P_CREV},
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, P_OCTAVE},
-    {P_TUNE, P_MIDI, K_LEDS, K_NONE},
     {K_PALETTE, K_SIZE, K_NONE, K_NONE},
+    {P_TUNE, P_MIDI, K_LEDS, K_NONE},
     {P_ATKH, P_RELH, P_ATKC, P_RELC},
 };
 
@@ -66,7 +66,7 @@ static uint16_t pal565(const uint8_t *c) { return RGB(c[0], c[1], c[2]); }
 static struct {
     uint16_t bg, surf, line, dim, text, ink, harp, harp_t, chord, chord_t, rhy, rhy_t;
 } th;
-static uint8_t theme_i;                /* the palette in use (Setup 2 shows its index) */
+static uint8_t theme_i;                /* the palette in use (the Colours page shows its index) */
 
 #define K_BG th.bg                    /* the paper */
 #define K_PANEL th.surf               /* panels, pills, the knob band's card */
@@ -356,8 +356,8 @@ static void pad_up(int p)
  * (the autosave would a few seconds later, too, but leaving is the promise). */
 static void set_view(int v)
 {
-    int was = ui.view == V_SETUP || ui.view == V_SETUP2;
-    int now = v == V_SETUP || v == V_SETUP2;
+    int was = ui.view == V_COLOURS || ui.view == V_SETUP;
+    int now = v == V_COLOURS || v == V_SETUP;
     if (was && !now && ui.dirty) {
         if (project_save() == 0) {
             ui.dirty = 0;
@@ -377,7 +377,7 @@ static void button(int b)
     case B_SEQ: set_view(V_RHYTHM); break;
     case B_FX: set_view(V_SOUND); break;
     case B_SEL: set_view(V_PADS); break;
-    case B_GLO: set_view(ui.view == V_SETUP ? V_SETUP2 : V_SETUP); break;   /* GLO again goes on */
+    case B_GLO: set_view(ui.view == V_COLOURS ? V_SETUP : V_COLOURS); break;  /* the palette first, GLO again the rest */
     case B_ENV: set_view(V_ENV); break;                                      /* a tap of ENV (held it is the minor row) */
     case B_EDIT: set_view((ui.view + 1) % NVIEWS); break;
     case B_PLAY:
@@ -855,8 +855,8 @@ static void draw_env(int32_t y0, int32_t h)
     env_shape(124, 110, y0, h, proj.par[P_ATKC], proj.par[P_RELC], K_CHORD);
 }
 
-/* Setup 2: the palette itself, big, with its six colours as samples. The pads below are drawn in it, so
- * the page is the preview of what is being chosen. */
+/* The Colours page: the palette itself, big, with its six colours as samples. The pads below are drawn
+ * in it, so the page is the preview of what is being chosen. */
 static void draw_theme_page(void)
 {
     static const uint8_t MAP[6] = {TC_BG, TC_SURF, TC_TEXT, TC_HARP, TC_CHORD, TC_RHY};
@@ -891,7 +891,7 @@ static void draw_main(void)
         h = hash(h, proj.pad_root[s] | proj.pad_type[s] << 4);
     if (ui.view == V_RHYTHM)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
-    if (ui.view == V_SETUP2)
+    if (ui.view == V_COLOURS)
         h = hash(hash(h, (uint32_t)proj.theme), (uint32_t)proj.large);
     if (ui.view == V_ENV)
         h = hash(hash(h, (uint32_t)proj.par[P_ATKH] << 16 | (uint32_t)proj.par[P_RELH]),
@@ -900,7 +900,7 @@ static void draw_main(void)
         return;
     ui.sig[1] = h;
     cv_begin(240, MAIN_H, K_BG);
-    if (ui.view == V_SETUP2) {
+    if (ui.view == V_COLOURS) {
         draw_theme_page();
     } else {
         chord_name(ui.root, ui.type, name);
@@ -1010,7 +1010,7 @@ static void draw_knobs(void)
 static void leds(void)
 {
     uint32_t b = 0, k = 0, i;
-    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO};
+    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO, B_GLO, B_ENV};
     b |= 1u << VIEW_BTN[ui.view];
     if (om_playing)
         b |= (om_step & 3u) < 2u ? 1u << B_PLAY : 0u;
