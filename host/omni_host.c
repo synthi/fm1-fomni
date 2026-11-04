@@ -408,6 +408,10 @@ static int expect(const char *what, const char *val)
         got = ui.armed;
     else if (!strcmp(what, "dirty"))
         got = ui.dirty;
+    else if (!strcmp(what, "theme"))
+        got = proj.theme;
+    else if (!strcmp(what, "large"))
+        got = proj.large;
     else if (!strcmp(what, "store_writes"))
         got = (int)store_writes;
     else if (!strcmp(what, "clocks_out"))

@@ -43,6 +43,19 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 - **FX: Sound.** Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.
 - **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). KNOB 3 and 4 are Transpose and Octave.
 - **GLO: Setup.** Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).
+- **GLO again: Setup 2.** Palette (KNOB 1, nineteen colour schemes, tried on the page as you turn) and Size
+  (KNOB 2: Normal, four cards; Large, two rows of two, which gives the values more room). The page shows the
+  palette's name, its colours as samples, and the chord buttons drawn in it. Leaving the settings keeps what
+  was chosen: the project is saved on the way out.
+
+### Colours
+
+Nineteen palettes, from **AUBERGINE** (the dark one a fresh FM-1 starts in) and **NIGHT ROSE** to **CREAM**, the
+light one, **MONO**, **HIGH CONTRAST**, and five taken from Patagonia (P ROSE, P VIOLET, P SAKURA, P TERRA,
+P AQUA). They live in `firmware/src/app/palettes.h`, eight colours each; the rules, the labels and the pale
+tints are blended from them. Every pair the screen draws is checked for its WCAG contrast (7:1 for a value,
+4.5:1 for a label) and for surviving the panel's RGB565 by `tools/check_palettes.py`, which `tests/run_tests.sh`
+runs: a palette that would be hard on a tired eye does not build.
 
 **Voice 1** is the Omnichord's shimmering harp, and **Voice 2** is its plain one. Mix them, and
 set how long the strings ring with **Sustain**.

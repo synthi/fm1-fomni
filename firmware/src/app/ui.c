@@ -6,39 +6,32 @@
  *   black keys     the chord buttons; hold ENV for the minor, LFO for the 7th, both for the m7
  *   PLAY           the rhythm on / off (with SYNC START: it waits for the first chord)
  *   REC            SYNC START          ARP   CHORD HOLD          OCT- / OCT+   the plate's octave
- *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (EDIT steps through them)
+ *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP, SETUP 2
+ *                  GLO pressed again on SETUP goes on to SETUP 2 (the palette and the size of the
+ *                  knob band); EDIT steps through all six
  *   SELECT tempo   ALGORITHM rhythm   PRESETS transpose   KNOB 1-4 the page's four values
- *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet) */
+ *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet, and
+ *                  when the settings pages are left: a palette or a size is played with, then kept) */
 
-enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, NVIEWS };
-static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup"};
+enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, NVIEWS };
+static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2"};
 /* the four knobs of each page: a parameter, or one of these */
-enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_NONE };
+enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PALETTE, K_SIZE, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
     {P_REVERB, P_SPACE, P_WIDTH, P_CREV},
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, P_OCTAVE},
     {P_TUNE, P_MIDI, K_LEDS, K_NONE},
+    {K_PALETTE, K_SIZE, K_NONE, K_NONE},
 };
 
 static const uint8_t WHITE_K[OM_NSTR] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t BLACK_K[NPADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 
-/* the screen's colours: light and friendly. Cream paper, warm brown ink, one soft colour per section
- * (harp coral, chords teal, rhythm pink), each with a pale tint for the shapes at rest */
-#define K_BG RGB(250, 244, 232)
-#define K_PANEL RGB(236, 228, 212)
-#define K_LINE RGB(216, 205, 186)
-#define K_DIM RGB(150, 136, 118)
-#define K_TEXT RGB(72, 58, 48)
-#define K_WHITE RGB(255, 255, 255)
-#define K_HARP RGB(242, 120, 72)
-#define K_HARP_T RGB(248, 208, 184)
-#define K_CHORD RGB(38, 166, 154)
-#define K_CHORD_T RGB(196, 230, 222)
-#define K_RHY RGB(232, 88, 128)
-#define K_RHY_T RGB(246, 206, 218)
+/* the screen's colour: a palette from palettes.h, the rest of the tokens derived (mix, below). One soft
+ * colour per section (harp, chords, rhythm), each with a pale tint for the shapes at rest */
+#include "palettes.h"
 
 static struct {
     uint8_t view;
@@ -58,6 +51,56 @@ static struct {
     uint32_t frame;
     uint32_t sig[3];                   /* what each band shows: redrawn when it changes */
 } ui;
+
+/* ---------------------------------------------------------------- theme --- */
+/* t 0..16: a -> b, channel by channel (RGB565); the palette's derived tokens come from here */
+static uint16_t mix(uint16_t a, uint16_t b, int t)
+{
+    int r = ((a >> 11) * (16 - t) + (b >> 11) * t) / 16, g = (((a >> 5) & 63) * (16 - t) + ((b >> 5) & 63) * t) / 16,
+        bl = ((a & 31) * (16 - t) + (b & 31) * t) / 16;
+    return (uint16_t)(r << 11 | g << 5 | bl);
+}
+static uint16_t pal565(const uint8_t *c) { return RGB(c[0], c[1], c[2]); }
+
+static struct {
+    uint16_t bg, surf, line, dim, text, ink, harp, harp_t, chord, chord_t, rhy, rhy_t;
+} th;
+static uint8_t theme_i;                /* the palette in use (Setup 2 shows its index) */
+
+#define K_BG th.bg                    /* the paper */
+#define K_PANEL th.surf               /* panels, pills, the knob band's card */
+#define K_LINE th.line                /* rules, the gauge's track */
+#define K_DIM th.dim                  /* labels, units, what is off */
+#define K_TEXT th.text                /* values, the chord */
+#define K_WHITE th.ink                /* text on a coloured fill (a lit pad, a pill) */
+#define K_HARP th.harp                /* the strings */
+#define K_HARP_T th.harp_t
+#define K_CHORD th.chord              /* the chord pads */
+#define K_CHORD_T th.chord_t
+#define K_RHY th.rhy                  /* the rhythm */
+#define K_RHY_T th.rhy_t
+
+/* The palette in use: LINE and the pale tints are blended from its five hues (the fixed blends
+ * Patagonia's gfx.c uses). A change has to repaint every band, and a band is only drawn again when
+ * its hash moves: the three hashes go to a value a hash never takes. */
+static void theme_set(uint32_t i)
+{
+    const om_theme_t *p = &OM_THEMES[i % NTHEMES];
+    theme_i = (uint8_t)(i % NTHEMES);
+    th.bg = pal565(p->c[TC_BG]);
+    th.surf = pal565(p->c[TC_SURF]);
+    th.text = pal565(p->c[TC_TEXT]);
+    th.dim = pal565(p->c[TC_DIM]);
+    th.ink = pal565(p->c[TC_INK]);
+    th.harp = pal565(p->c[TC_HARP]);
+    th.chord = pal565(p->c[TC_CHORD]);
+    th.rhy = pal565(p->c[TC_RHY]);
+    th.line = mix(th.bg, th.text, 3);        /* 18 % */
+    th.harp_t = mix(th.bg, th.harp, 5);      /* 30 % */
+    th.chord_t = mix(th.bg, th.chord, 5);
+    th.rhy_t = mix(th.bg, th.rhy, 5);
+    ui.sig[0] = ui.sig[1] = ui.sig[2] = 0u;
+}
 
 static uint8_t sp_said;                 /* a message went to the screen reader this frame: speak() leaves it be */
 static void msg_text(const char *a, const char *b, char *t)   /* the message as a reader says it: "a b" */
@@ -143,6 +186,10 @@ static int knob_get(int k)
         return proj.pad_type[ui.pad_sel];
     if (k == K_LEDS)
         return proj.leds;
+    if (k == K_PALETTE)
+        return proj.theme;
+    if (k == K_SIZE)
+        return proj.large;
     return 0;
 }
 static void knob_range(int k, int *lo, int *hi)
@@ -152,14 +199,24 @@ static void knob_range(int k, int *lo, int *hi)
         *hi = om_param_info(k)->hi;
     } else {
         *lo = 0;
-        *hi = k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : 0;
+        *hi = k == K_PADROOT ? 11
+            : k == K_PADTYPE ? CH_NTYPES - 1
+            : k == K_LEDS ? 2
+            : k == K_PALETTE ? (int)NTHEMES - 1
+            : k == K_SIZE ? 1
+            : 0;
     }
 }
 static const char *knob_name(int k)
 {
     if (k < P_NPARAMS)
         return om_param_info(k)->name;
-    return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" : "";
+    return k == K_PADROOT ? "Root"
+         : k == K_PADTYPE ? "Type"
+         : k == K_LEDS ? "Lights"
+         : k == K_PALETTE ? "Palette"
+         : k == K_SIZE ? "Size"
+         : "";
 }
 static void knob_text(int k, char *b)
 {
@@ -176,6 +233,14 @@ static void knob_text(int k, char *b)
             ;
     } else if (k == K_LEDS) {                    /* On: the keys, and the unlit buttons glow; Keys: no glow */
         const char *n = v == 2 ? "Keys" : v ? "On" : "Off";
+        while ((*b++ = *n++))
+            ;
+    } else if (k == K_PALETTE) {                 /* short: the full name goes on the page, big */
+        const char *n = OM_THEMES[v % NTHEMES].short_name;
+        while ((*b++ = *n++))
+            ;
+    } else if (k == K_SIZE) {
+        const char *n = v ? "Large" : "Normal";
         while ((*b++ = *n++))
             ;
     } else {
@@ -206,6 +271,12 @@ static void knob_set(int k, int v)
         }
     } else if (k == K_LEDS) {
         proj.leds = (uint8_t)v;
+    } else if (k == K_PALETTE) {
+        proj.theme = (uint8_t)v;
+        theme_set((uint32_t)v);                /* the whole screen in the new palette, now */
+    } else if (k == K_SIZE) {
+        proj.large = (uint8_t)v;
+        ui.sig[2] = 0u;                        /* the knob band, drawn again */
     }
     mark_dirty();
 }
@@ -280,8 +351,20 @@ static void pad_up(int p)
 }
 
 /* ------------------------------------------------------------ buttons --- */
+/* The settings pages are where a palette and a size are tried on: leaving them keeps what was chosen
+ * (the autosave would a few seconds later, too, but leaving is the promise). */
 static void set_view(int v)
 {
+    int was = ui.view == V_SETUP || ui.view == V_SETUP2;
+    int now = v == V_SETUP || v == V_SETUP2;
+    if (was && !now && ui.dirty) {
+        if (project_save() == 0) {
+            ui.dirty = 0;
+            ui.saved_t = plat_ms();
+        } else {
+            warn("NOT SAVED", "FLASH ERROR");
+        }
+    }
     ui.view = (uint8_t)v;
     ui.touched = -1;
 }
@@ -293,7 +376,7 @@ static void button(int b)
     case B_SEQ: set_view(V_RHYTHM); break;
     case B_FX: set_view(V_SOUND); break;
     case B_SEL: set_view(V_PADS); break;
-    case B_GLO: set_view(V_SETUP); break;
+    case B_GLO: set_view(ui.view == V_SETUP ? V_SETUP2 : V_SETUP); break;   /* GLO again goes on */
     case B_EDIT: set_view((ui.view + 1) % NVIEWS); break;
     case B_PLAY:
         if (om_playing) {
@@ -488,12 +571,14 @@ static void input(void)
 }
 
 /* ------------------------------------------------------------- screen --- */
-/* three bands: the header (28 px), the instrument (144), the knobs (68) */
-#define HDR_H 28
-#define MAIN_Y 28
-#define MAIN_H 144
-#define KNB_Y 172
-#define KNB_H 68
+/* three bands: the header (32 px), the instrument (120), the knobs (88). The letters are as big as the
+ * band and the cell allow (a tired eye, a 240 x 240 screen): the value of a knob is FONT_L (32 px) when
+ * the string fits, then M, then B, then S */
+#define HDR_H 32
+#define MAIN_Y 32
+#define MAIN_H 120
+#define KNB_Y 152
+#define KNB_H 88
 
 static uint32_t hash(uint32_t h, uint32_t v) { return (h ^ v) * 16777619u; }
 
@@ -519,6 +604,47 @@ static void text_c(int32_t cx, int32_t y, const felucca_font_t *f, const char *s
     cv_text(cx - text_w(f, s) / 2, y, f, s, c);
 }
 
+static void text_r(int32_t rx, int32_t y, const felucca_font_t *f, const char *s, uint16_t c)
+{
+    cv_text(rx - text_w(f, s), y, f, s, c);
+}
+
+/* does the face have every glyph of the string? (FONT_M holds 32..95: capitals and digits, no lower case) */
+static int face_has(const felucca_font_t *f, const char *s)
+{
+    for (; *s; s++)
+        if ((uint8_t)*s < f->first || (uint8_t)*s > f->last)
+            return 0;
+    return 1;
+}
+
+/* The biggest face the string has and that fits w px: L (32 px) -> M (24) -> B (16) -> S (16, and the
+ * one used when nothing fits). It is what makes the values readable: a "100" is 48 px in L and fits a
+ * knob's 54, while a name like "Sustain" (92 px in L) steps down to B. */
+static const felucca_font_t *value_face(const char *s, int32_t w)
+{
+    static const felucca_font_t *const F[4] = {&FONT_L, &FONT_M, &FONT_B, &FONT_S};
+    int i;
+    for (i = 0; i < 4; i++)
+        if (face_has(F[i], s) && text_w(F[i], s) <= w)
+            return F[i];
+    return &FONT_S;
+}
+
+/* a knob's label: S (16) while it fits the cell, else XS (12): "Auto bass" is 62 px in S and a cell is
+ * 60 wide, and a label cut by the screen's edge is worse than a small one */
+static const felucca_font_t *label_face(const char *s, int32_t w)
+{
+    return text_w(&FONT_S, s) <= w ? &FONT_S : &FONT_XS;
+}
+
+/* a pad's chord type: B (16) while it fits the 18 px button, else XS. Never bigger: a lone "7" in L is
+ * 18 px wide, exactly the pad, and its ink overflows it */
+static const felucca_font_t *type_face(const char *s, int32_t w)
+{
+    return text_w(&FONT_B, s) <= w ? &FONT_B : &FONT_XS;
+}
+
 static void draw_header(void)
 {
     char t[24];
@@ -535,13 +661,41 @@ static void draw_header(void)
     ui.sig[0] = h;
     cv_begin(240, HDR_H, K_BG);
     if (msg) {
-        int32_t x = cv_text(10, 6, &FONT_B, ui.msg[0], K_TEXT);
-        cv_text(x + 8, 6, &FONT_B, ui.msg[1], K_HARP);
+        int32_t x = cv_text(10, 8, &FONT_B, ui.msg[0], K_TEXT);
+        cv_text(x + 8, 8, &FONT_B, ui.msg[1], K_HARP);
     } else {
-        int32_t x = 10;
-        cv_text(x, 6, &FONT_B, VIEW_NAME[ui.view], K_TEXT);
-        x = 232;
-        {   /* right: tempo, the rhythm, its state */
+        int32_t x = 10, left;
+        x = cv_text(x, 8, &FONT_B, VIEW_NAME[ui.view], K_TEXT);
+        left = x + 6;
+        if (proj.hold) {                          /* the tags, read from a metre away: ink on the colour */
+            int32_t w = text_w(&FONT_S, "HOLD") + 12;
+            cv_round(left, 5, w, 22, 7, K_CHORD);
+            cv_text(left + 6, 7, &FONT_S, "HOLD", K_WHITE);
+            left += w + 5;
+        }
+        if (proj.sync) {
+            int32_t w = text_w(&FONT_S, "SYNC") + 12;
+            cv_round(left, 5, w, 22, 7, K_RHY);
+            cv_text(left + 6, 7, &FONT_S, "SYNC", K_WHITE);
+            left += w + 5;
+        }
+        if (ui.dirty)
+            cv_round(left, 13, 6, 6, 3, K_DIM);
+        {   /* right: the state, the tempo, and the rhythm's name while it fits beside the tags */
+            x = 232;
+            if (om_playing) {                     /* a beat light */
+                int on = (om_step & 3u) < 2u;
+                cv_round(x - 12, 10, 12, 12, 6, on ? K_RHY : K_RHY_T);
+                x -= 18;
+            } else if (ui.armed) {
+                cv_round(x - 12, 10, 12, 12, 6, (ui.frame / 8u) & 1u ? K_RHY : K_RHY_T);
+                x -= 18;
+            } else {
+                int32_t j;                        /* stopped: a play triangle */
+                for (j = 0; j < 5; j++)
+                    cv_rect(x - 12 + j, 10 + j, 1, 12 - 2 * j, K_DIM);
+                x -= 16;
+            }
             if (om_ext) {                         /* following MIDI clock */
                 t[0] = 'E';
                 t[1] = 'X';
@@ -550,46 +704,16 @@ static void draw_header(void)
             } else {
                 itoa_u((uint32_t)proj.par[P_TEMPO], t);
             }
-            x -= text_w(&FONT_S, t);
-            cv_text(x, 6, &FONT_S, t, om_playing ? K_TEXT : K_DIM);
-            x -= 8 + text_w(&FONT_S, om_rhythm(proj.par[P_RHYTHM])->name);
-            cv_text(x, 6, &FONT_S, om_rhythm(proj.par[P_RHYTHM])->name, om_playing ? K_RHY : K_DIM);
-            x -= 16;
-            if (om_playing) {                     /* a beat light */
-                int on = (om_step & 3u) < 2u;
-                cv_round(x, 8, 10, 10, 5, on ? K_RHY : K_RHY_T);
-            } else if (ui.armed) {
-                cv_round(x, 8, 10, 10, 5, (ui.frame / 8u) & 1u ? K_RHY : K_RHY_T);
-            } else {
-                int32_t j;                        /* stopped: a play triangle */
-                for (j = 0; j < 5; j++)
-                    cv_rect(x + j, 9 + j, 1, 11 - 2 * j, K_DIM);
+            x -= text_w(&FONT_M, t);
+            cv_text(x, 3, &FONT_M, t, om_playing ? K_TEXT : K_DIM);
+            x -= 10;
+            if (x - text_w(&FONT_S, om_rhythm(proj.par[P_RHYTHM])->name) > left + 4) {
+                x -= text_w(&FONT_S, om_rhythm(proj.par[P_RHYTHM])->name);
+                cv_text(x, 8, &FONT_S, om_rhythm(proj.par[P_RHYTHM])->name, om_playing ? K_RHY : K_DIM);
             }
         }
-        x = 18 + text_w(&FONT_B, VIEW_NAME[ui.view]);
-        if (proj.hold) {                          /* little tags */
-            int32_t w = text_w(&FONT_XS, "HOLD") + 10;
-            cv_round(x, 6, w, 16, 6, K_CHORD_T);
-            cv_text(x + 5, 7, &FONT_XS, "HOLD", K_CHORD);
-            x += w + 4;
-        }
-        if (proj.sync) {
-            int32_t w = text_w(&FONT_XS, "SYNC") + 10;
-            cv_round(x, 6, w, 16, 6, K_RHY_T);
-            cv_text(x + 5, 7, &FONT_XS, "SYNC", K_RHY);
-            x += w + 4;
-        }
-        if (ui.dirty)
-            cv_round(x, 12, 5, 5, 2, K_DIM);
     }
     cv_blit(0, 0);
-}
-
-static uint16_t mix(uint16_t a, uint16_t b, int t)   /* t 0..16: a -> b */
-{
-    int r = ((a >> 11) * (16 - t) + (b >> 11) * t) / 16, g = (((a >> 5) & 63) * (16 - t) + ((b >> 5) & 63) * t) / 16,
-        bl = ((a & 31) * (16 - t) + (b & 31) * t) / 16;
-    return (uint16_t)(r << 11 | g << 5 | bl);
 }
 
 static void draw_strings(int32_t y0, int32_t h)
@@ -634,6 +758,23 @@ static void draw_rhythm(int32_t y0, int32_t h)
     }
 }
 
+/* the nine chord types as colours, so a pad says which one at a glance (the word is small on an 18 px
+ * button): a major is the pad's own rule, a minor the chord's hue, a 7th the rhythm's, and so on */
+static uint16_t pad_type_tone(int t)
+{
+    switch (t) {
+    case CH_MAJ: return K_LINE;
+    case CH_MIN: return K_CHORD;
+    case CH_7: return K_RHY;
+    case CH_MAJ7: return K_HARP;
+    case CH_M7: return mix(K_CHORD, K_RHY, 8);
+    case CH_DIM: return K_DIM;
+    case CH_AUG: return mix(K_HARP, K_RHY, 8);
+    case CH_SUS4: return mix(K_CHORD, K_HARP, 8);
+    default: return K_TEXT;                  /* add 9 */
+    }
+}
+
 static void draw_pads(int32_t y0)
 {
     int p;
@@ -641,12 +782,41 @@ static void draw_pads(int32_t y0)
         char t[12];
         int32_t x = 4 + p * 20 + ((p >= 3) + (p >= 5) + (p >= 8) + (p >= 10)) * 3;   /* grouped as the keys are */
         int on = ui.pad == p, sel = ui.view == V_PADS && ui.pad_sel == p;
+        const char *tn = proj.pad_type[p] ? OM_TYPE_NAME[proj.pad_type[p]] : "";
         if (sel)
-            cv_round(x - 1, y0 - 1, 20, 30, 6, K_TEXT);
-        cv_round(x, y0, 18, 28, 5, on ? K_CHORD : K_CHORD_T);
+            cv_round(x - 1, y0 - 1, 20, 34, 6, K_TEXT);
+        cv_round(x, y0, 18, 32, 5, on ? K_CHORD : K_CHORD_T);
         chord_name(proj.pad_root[p], 0, t);
-        text_c(x + 9, y0 + 1, &FONT_XS, t, on ? K_WHITE : K_TEXT);
-        text_c(x + 9, y0 + 13, &FONT_XS, proj.pad_type[p] ? OM_TYPE_NAME[proj.pad_type[p]] : "", on ? K_WHITE : K_CHORD);
+        text_c(x + 9, y0 + 1, &FONT_B, t, on ? K_WHITE : K_TEXT);
+        if (tn[0]) {                              /* its type: the word in the biggest face that fits, and its colour */
+            text_c(x + 9, y0 + 15, type_face(tn, 18), tn, on ? K_WHITE : K_TEXT);
+            if (proj.pad_type[p] != CH_MAJ)
+                cv_round(x + 13, y0 + 4, 5, 5, 2, on ? K_WHITE : pad_type_tone(proj.pad_type[p]));
+        }
+    }
+}
+
+/* Setup 2: the palette itself, big, with its six colours as samples. The pads below are drawn in it, so
+ * the page is the preview of what is being chosen. */
+static void draw_theme_page(void)
+{
+    static const uint8_t MAP[6] = {TC_BG, TC_SURF, TC_TEXT, TC_HARP, TC_CHORD, TC_RHY};
+    const om_theme_t *p = &OM_THEMES[theme_i];
+    char a[8], b[8];
+    int i;
+    int32_t x, w;
+    cv_text(12, 0, value_face(p->name, 170), p->name, K_TEXT);
+    itoa_u((uint32_t)theme_i + 1u, a);
+    itoa_u((uint32_t)NTHEMES, b);
+    w = text_w(&FONT_B, a) + text_w(&FONT_B, "/") + 4 + text_w(&FONT_B, b);
+    x = 240 - 12 - w;
+    x = cv_text(x, 10, &FONT_B, a, K_TEXT);
+    x = cv_text(x + 2, 10, &FONT_B, "/", K_DIM);
+    cv_text(x + 3, 10, &FONT_B, b, K_DIM);
+    for (i = 0; i < 6; i++) {                     /* each colour in its place, with a hairline: BG on BG */
+        int32_t sx = 4 + i * 39;
+        cv_round(sx, 42, 35, 26, 6, K_LINE);
+        cv_round(sx + 1, 43, 33, 24, 5, pal565(p->c[MAP[i]]));
     }
 }
 
@@ -662,42 +832,50 @@ static void draw_main(void)
         h = hash(h, proj.pad_root[s] | proj.pad_type[s] << 4);
     if (ui.view == V_RHYTHM)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
+    if (ui.view == V_SETUP2)
+        h = hash(hash(h, (uint32_t)proj.theme), (uint32_t)proj.large);
     if (h == ui.sig[1])
         return;
     ui.sig[1] = h;
     cv_begin(240, MAIN_H, K_BG);
-    chord_name(ui.root, ui.type, name);
-    {   /* the chord: its name, big, and its notes */
-        uint8_t hp[OM_NSTR], cn[OM_NCHORD], bn;
-        int i, k = 0;
-        uint16_t c = mix(K_TEXT, K_CHORD, (int)(om_chord_level * 16.0f));
-        int32_t x = 12;
-        const char *tn = OM_TYPE_NAME[ui.type];
-        name[str_len_(name) - str_len_(tn)] = 0;        /* the root, big; the type beside it */
-        x = cv_text(x, 4, &FONT_L, name, c);
-        cv_text(x + 2, 16, &FONT_B, tn, c);
-        om_voicing(ui.root, ui.type, proj.par[P_TRANSPOSE], proj.par[P_OCTAVE], hp, cn, &bn);
-        for (i = 0; i < 3; i++) {
-            const char *n = OM_NOTE_NAME[cn[i] % 12];
-            if (i)
-                notes[k++] = ' ';
-            while (*n)
-                notes[k++] = *n++;
+    if (ui.view == V_SETUP2) {
+        draw_theme_page();
+    } else {
+        chord_name(ui.root, ui.type, name);
+        {   /* the chord: its name, big, and its notes */
+            uint8_t hp[OM_NSTR], cn[OM_NCHORD], bn;
+            int i, k = 0;
+            uint16_t c = mix(K_TEXT, K_CHORD, (int)(om_chord_level * 16.0f));
+            const char *tn = OM_TYPE_NAME[ui.type];
+            int32_t x = 12;
+            name[str_len_(name) - str_len_(tn)] = 0;        /* the root, big; the type beside it */
+            x = cv_text(x, 0, &FONT_L, name, c);
+            cv_text(x + 2, 14, &FONT_B, tn, c);
+            om_voicing(ui.root, ui.type, proj.par[P_TRANSPOSE], proj.par[P_OCTAVE], hp, cn, &bn);
+            for (i = 0; i < 3; i++) {
+                const char *n = OM_NOTE_NAME[cn[i] % 12];
+                if (i)
+                    notes[k++] = ' ';
+                while (*n)
+                    notes[k++] = *n++;
+            }
+            notes[k] = 0;
+            cv_text(240 - 12 - text_w(&FONT_S, notes), 10, &FONT_S, notes, K_DIM);
         }
-        notes[k] = 0;
-        cv_text(240 - 12 - text_w(&FONT_S, notes), 14, &FONT_S, notes, K_DIM);
+        if (ui.view == V_RHYTHM)
+            draw_rhythm(34, 42);
+        else
+            draw_strings(34, 42);
     }
-    if (ui.view == V_RHYTHM)
-        draw_rhythm(44, 62);
-    else
-        draw_strings(44, 54);
-    draw_pads(112);
+    draw_pads(86);
     cv_blit(0, MAIN_Y);
 }
 
 static void draw_knobs(void)
 {
-    uint32_t h = hash(2166136261u, ui.view | (uint32_t)ui.touched << 8 | ui.pad_sel << 16), i;
+    uint32_t h = hash(hash(2166136261u, ui.view | (uint32_t)ui.touched << 8 | ui.pad_sel << 16),
+                      (uint32_t)proj.large << 24),
+                 i;
     int now_touch = plat_ms() < ui.touch_until;
     for (i = 0; i < 4; i++)
         h = hash(h, (uint32_t)knob_get(VIEW_KNOB[ui.view][i]));
@@ -706,37 +884,60 @@ static void draw_knobs(void)
         return;
     ui.sig[2] = h;
     cv_begin(240, KNB_H, K_BG);
-    cv_round(4, 2, 232, KNB_H - 6, 6, K_PANEL);
-    for (i = 0; i < 4; i++) {
-        int k = VIEW_KNOB[ui.view][i], lo, hi, v;
-        int32_t x = (int32_t)i * 60, cx = x + 30, bw;
-        int hot = now_touch && ui.touched == (int)i;
-        char t[16];
-        if (k == K_NONE)
-            continue;
-        if (i)
-            cv_rect(x, 14, 1, KNB_H - 30, K_LINE);
-        knob_range(k, &lo, &hi);
-        v = knob_get(k);
-        text_c(cx, 6, &FONT_XS, knob_name(k), hot ? K_TEXT : K_DIM);
-        knob_text(k, t);
-        {   /* the value: big, unless it has lower case (the big face has none) or is long */
-            const char *q = t;
-            int lower = 0;
-            for (; *q; q++)
-                lower |= *q >= 'a' && *q <= 'z';
-            if (lower || text_w(&FONT_M, t) > 56)
-                text_c(cx, 26, &FONT_B, t, hot ? K_HARP : K_TEXT);
-            else
-                text_c(cx, 22, &FONT_M, t, hot ? K_HARP : K_TEXT);
+    if (!proj.large) {
+        /* four cards: the label, the value in the biggest face that fits, and the gauge */
+        cv_round(4, 2, 232, KNB_H - 6, 7, K_PANEL);
+        for (i = 0; i < 4; i++) {
+            int k = VIEW_KNOB[ui.view][i], lo, hi, v;
+            int32_t x = (int32_t)i * 60, cx = x + 30, bw;
+            int hot = now_touch && ui.touched == (int)i;
+            char t[16];
+            if (k == K_NONE)
+                continue;
+            if (i)
+                cv_rect(x, 8, 1, KNB_H - 20, K_LINE);
+            knob_range(k, &lo, &hi);
+            v = knob_get(k);
+            text_c(cx, 5, label_face(knob_name(k), 56), knob_name(k), hot ? K_TEXT : K_DIM);
+            knob_text(k, t);
+            text_c(cx, 22, value_face(t, 54), t, hot ? K_HARP : K_TEXT);
+            bw = hi > lo ? (int32_t)(44 * (v - lo) / (hi - lo)) : 0;
+            cv_round(cx - 22, 62, 44, 8, 4, K_LINE);
+            if (lo < 0) {                            /* centred values: a bar from the middle */
+                int32_t m = cx - 22 + 44 * (0 - lo) / (hi - lo), e = cx - 22 + bw;
+                cv_round(e < m ? e : m, 62, (e < m ? m - e : e - m) + 8, 8, 4, hot ? K_HARP : K_CHORD);
+            } else if (bw) {
+                cv_round(cx - 22, 62, bw < 8 ? 8 : bw, 8, 4, hot ? K_HARP : K_CHORD);
+            }
         }
-        bw = hi > lo ? (int32_t)(44 * (v - lo) / (hi - lo)) : 0;
-        cv_round(cx - 22, 50, 44, 6, 3, K_LINE);
-        if (lo < 0) {                                /* centred values: a bar from the middle */
-            int32_t m = cx - 22 + 44 * (0 - lo) / (hi - lo), e = cx - 22 + bw;
-            cv_round(e < m ? e : m, 50, (e < m ? m - e : e - m) + 6, 6, 3, hot ? K_HARP : K_CHORD);
-        } else if (bw) {
-            cv_round(cx - 22, 50, bw < 6 ? 6 : bw, 6, 3, hot ? K_HARP : K_CHORD);
+    } else {
+        /* LARGE: two rows of two cards; the label and the value share a line, the gauge runs under it.
+         * 114 px of card is room for a 32 px value beside its name */
+        for (i = 0; i < 4; i++) {
+            int k = VIEW_KNOB[ui.view][i], lo, hi, v;
+            int32_t x = 4 + (int32_t)(i & 1) * 118, y = 4 + (int32_t)(i >> 1) * 42, bw;
+            int hot = now_touch && ui.touched == (int)i;
+            char t[16];
+            if (k == K_NONE)
+                continue;
+            cv_round(x, y, 114, 38, 6, K_PANEL);
+            knob_range(k, &lo, &hi);
+            v = knob_get(k);
+            knob_text(k, t);
+            {
+                const char *nm = knob_name(k);
+                int32_t half = 100 - text_w(&FONT_S, nm);
+                cv_text(x + 7, y + 12, label_face(nm, 96), nm, hot ? K_TEXT : K_DIM);
+                text_r(x + 107, y + 3, value_face(t, half - 6), t, hot ? K_HARP : K_TEXT);
+            }
+            bw = hi > lo ? (int32_t)(102 * (v - lo) / (hi - lo)) : 0;
+            cv_rect(x + 6, y + 33, 102, 2, K_LINE);
+            if (lo < 0) {
+                int32_t m = 102 * (0 - lo) / (hi - lo), e = bw;
+                cv_rect(x + 6 + (e < m ? e : m), y + 33, (e < m ? m - e : e - m) + 2, 2, hot ? K_HARP : K_CHORD);
+            } else if (bw) {
+                cv_rect(x + 6, y + 33, bw < 2 ? 2 : bw, 2, hot ? K_HARP : K_CHORD);
+            }
         }
     }
     cv_blit(0, KNB_Y);
@@ -789,7 +990,8 @@ static void autosave(void)
  * with its knobs; a knob's value as it turns; the chord a button (or MIDI) plays; play and stop; what a
  * button did (say). WHERE (the reader asks, or it has just started listening) is everything on the screen.
  * Nothing is built while no reader listens. */
-#define SP_NV (P_NPARAMS + 3)                  /* the values watched: the parameters, the button's root and type, lights */
+#define SP_NV (P_NPARAMS + 5)                  /* the values watched: the parameters, the button's root and type,
+                                                * lights, the palette, the size */
 static struct {
     uint32_t ctx;                              /* the page, hashed: a change is said */
     int32_t chord;                             /* the chord said last: button | root | type, -1 none */
@@ -817,6 +1019,8 @@ static void sp_knob(int k)                     /* "Voice 1 80", "Type minor 7" *
     sp_cat(" ");
     if (k == K_PADTYPE) {
         sp_cat(TYPE_SAID[knob_get(k)]);
+    } else if (k == K_PALETTE) {                   /* the whole name: a knob holds six characters */
+        sp_cat(OM_THEMES[knob_get(k) % NTHEMES].name);
     } else {
         knob_text(k, t);
         sp_cat(t);
@@ -1014,6 +1218,7 @@ void ui_init(void)
     ui.touched = -1;
     ui.root = proj.pad_root[1];                  /* C, the second button */
     ui.type = proj.pad_type[1];
+    theme_set(proj.theme);                       /* the palette saved with the project */
     sound_chord();
     lcd_fill(0, 0, 240, 240, K_BG);
 }

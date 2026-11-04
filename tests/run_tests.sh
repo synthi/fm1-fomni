@@ -42,6 +42,7 @@ else
     echo "  skip update-path tests (no build/omni.fwsc: run ./build.sh)"
 fi
 run host-build sh host/build_host.sh
+run palettes python3 tools/check_palettes.py
 if command -v node >/dev/null 2>&1; then
     run page-scripts python3 tests/page_script_test.py
 fi

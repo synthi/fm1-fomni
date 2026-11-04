@@ -22,6 +22,8 @@ void project_defaults(void)
         proj.pad_type[i] = PAD_TYPE[i];
     }
     proj.leds = 1;
+    proj.theme = (uint8_t)THEME_DEFAULT;
+    proj.large = 0;
 }
 
 static int project_valid(void)
@@ -41,6 +43,10 @@ static int project_valid(void)
     for (i = 0; i < NPADS; i++)
         if (proj.pad_root[i] > 11u || proj.pad_type[i] >= CH_NTYPES)
             return 0;
+    if (proj.theme >= NTHEMES) {                 /* a project from another firmware, or a palette gone */
+        proj.theme = (uint8_t)THEME_DEFAULT;
+    }
+    proj.large = (uint8_t)(proj.large != 0);
     return 1;
 }
 

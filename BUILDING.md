@@ -61,8 +61,10 @@ tests/run_tests.sh
 
 Runs, on the build machine: the maths library against libm; the instrument (`tests/host/omni_test.c`:
 the strum plate's voicing against the OM-108 manual, envelopes, rhythm timing, levels); flash
-storage; Felucca's update-path tests against `build/omni.fwsc`; and the whole app in the simulator
-(`tests/scenarios/*.omni`), with its screenshots and audio in `build/scenarios/`.
+storage; Felucca's update-path tests against `build/omni.fwsc`; the palettes' contrast
+(`tools/check_palettes.py`); and the whole app in the simulator (`tests/scenarios/*.omni`), with its
+screenshots and audio in `build/scenarios/` — `themes.omni` writes one screen per palette, both sizes,
+and checks that a palette and a size survive leaving the settings and a reboot.
 
 `host/build_host.sh` builds the simulator alone; `build/host/omni_host SCRIPT OUTDIR` runs one
 script (the command list is at the top of `host/omni_host.c`).

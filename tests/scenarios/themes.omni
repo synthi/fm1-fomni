@@ -1,0 +1,105 @@
+# The palettes and the size of the knob band (Setup 2: GLO pressed twice). One screenshot per palette
+# in build/scenarios/themes/, the two sizes, and the choice kept on leaving the settings (the settings
+# save the project on the way out) and across a reboot (it is in the flash project).
+wait 300
+tap GLO
+wait 150
+tap GLO
+wait 250
+expect view 5
+expect theme 1                      # AUBERGINE: a fresh FM-1 starts dark
+expect large 0
+shot setup2.png
+# every palette, in order (KNOB 1)
+spin K1 -20                         # clamps to 0: CREAM
+wait 80
+shot p00-cream.png
+spin K1 1
+wait 80
+shot p01-aubergine.png
+spin K1 1
+wait 80
+shot p02-night-rose.png
+spin K1 1
+wait 80
+shot p03-midnight.png
+spin K1 1
+wait 80
+shot p04-olive.png
+spin K1 1
+wait 80
+shot p05-graphite.png
+spin K1 1
+wait 80
+shot p06-wine.png
+spin K1 1
+wait 80
+shot p07-petrol.png
+spin K1 1
+wait 80
+shot p08-forest.png
+spin K1 1
+wait 80
+shot p09-cocoa.png
+spin K1 1
+wait 80
+shot p10-indigo.png
+spin K1 1
+wait 80
+shot p11-amber-night.png
+spin K1 1
+wait 80
+shot p12-mono.png
+spin K1 1
+wait 80
+shot p13-high-contrast.png
+spin K1 1
+wait 80
+shot p14-p-rose.png
+spin K1 1
+wait 80
+shot p15-p-violet.png
+spin K1 1
+wait 80
+shot p16-p-sakura.png
+spin K1 1
+wait 80
+shot p17-p-terra.png
+spin K1 1
+wait 80
+shot p18-p-aqua.png
+# the knob band's size (KNOB 2), on AUBERGINE and on AMBER NIGHT
+spin K1 -17
+wait 80
+spin K2 1
+wait 100
+expect large 1
+shot size-large-01.png
+spin K1 10
+wait 100
+shot size-large-11.png
+spin K2 -1
+wait 100
+expect large 0
+shot size-normal-11.png
+# leaving the settings keeps what was chosen, and it is in flash
+tap HOME
+wait 150
+expect view 0
+expect dirty 0
+expect theme 11
+expect large 0
+reboot
+wait 300
+expect theme 11
+expect large 0
+tap GLO
+wait 100
+tap GLO
+wait 250
+shot after-reboot.png
+# the screen reader hears the page and the palette's whole name (the knob only holds six characters)
+listen
+wait 100
+where
+said Setup 2 page: Palette AMBER NIGHT, Size Normal

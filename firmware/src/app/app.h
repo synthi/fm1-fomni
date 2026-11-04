@@ -4,6 +4,7 @@
 #pragma once
 #include <stdint.h>
 #include "plat.h"
+#include "palettes.h"
 #include "../dsp/omni.h"
 
 #ifndef OM_VERSION                       /* a release build passes its own (tools/build.py --release) */
@@ -20,7 +21,9 @@ typedef struct {
     uint8_t hold;                        /* CHORD HOLD: the chord keeps playing after its button is let go */
     uint8_t sync;                        /* SYNC START: the rhythm starts with the first chord */
     uint8_t leds;                        /* lights: 0 off, 1 keys and the buttons' glow, 2 keys only */
-    uint8_t rsv[13];                     /* room to grow: an older, shorter project loads (zeros here) */
+    uint8_t theme;                       /* the palette (palettes.h): 0 CREAM, the default 1 BERENJENA */
+    uint8_t large;                       /* the knob band: 0 four cards, 1 two rows of two (bigger values) */
+    uint8_t rsv[11];                     /* room to grow: an older, shorter project loads (zeros here) */
 } project_t;
 
 extern project_t proj;
