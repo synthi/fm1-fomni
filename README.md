@@ -49,11 +49,13 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
   palette's name, its colours as samples, and the chord buttons drawn in it. Leaving the settings keeps what
   was chosen: the project is saved on the way out.
 - **ENV: Envelope.** Str A and Str R (the strings' attack and release), Chd A and Chd R (the chord and its
-  bass). The attack is a straight line up, the release an exponential fall, both from 0 ms to 10 s (a
-  geometric knob: 0, 10 ms, then up to 10 s in a turn). The page draws the two envelopes, the strings in the
-  harp's colour and the chord in the chord's, and a black key or a white one auditions it. As a fresh FM-1
-  comes: a pluck as it always was (0 ms) with a 10 s release (the natural decay ends the string first), the
-  chord without an attack and with the 0.18 s release it had. SAVE keeps them.
+  bass). The attack is a straight line up, the release the string's own decay stretched or an exponential
+  fall for the chord; the attack goes from 0 ms to 2.5 s, the release from 0 ms to 10 s (a geometric knob:
+  0, then 10 ms up in a turn). The page draws the two envelopes, the strings in the harp's colour and the
+  chord in the chord's, and a black key or a white one auditions it. As a fresh FM-1 comes: a pluck as it
+  always was (0 ms) with a 2 s release (the ring the strings always had), the chord without an attack and
+  with the 0.18 s release it had. The strings' release is their own decay law stretched to the time, so
+  the tone darkens as the tail expands. SAVE keeps them.
 
 ### Colours
 

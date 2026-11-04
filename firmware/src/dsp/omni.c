@@ -20,15 +20,17 @@ const char *const OM_NOTE_NAME[12] = {"C", "C#", "D", "Eb", "E", "F", "F#", "G",
 const int8_t OM_TYPE_TONES[CH_NTYPES][3] = {
     {0, 4, 7}, {0, 3, 7}, {0, 4, 10}, {0, 4, 11}, {0, 3, 10}, {0, 3, 6}, {0, 4, 8}, {0, 5, 7}, {0, 4, 2}};
 
-#define ENV_STEPS 100                     /* an envelope time's range: 0 ms .. 10 s, geometric */
+#define ENV_STEPS 100                     /* an envelope time's range, in knob steps */
+#define ENV_MAX_ATK 2500                  /* an attack: 0 .. 2.5 s */
+#define ENV_MAX_REL 10000                 /* a release: 0 .. 10 s */
 static const om_param_t PARAMS[P_NPARAMS] = {
     {"Voice 1", 0, 100, 80}, {"Voice 2", 0, 100, 45}, {"Sustain", 0, 100, 50}, {"Chord", 0, 100, 60},
     {"Rhythm", 0, OM_NRHYTHM - 1, 0}, {"Tempo", 60, 240, 116}, {"Drums", 0, 100, 70}, {"Auto bass", 0, 1, 1},
     {"Reverb", 0, 100, 30}, {"Space", 0, 100, 55}, {"Tune", -50, 50, 0}, {"Chord rev", 0, 100, 25},
     {"Transpose", -6, 6, 0}, {"Octave", -1, 1, 0}, {"Width", 0, 100, 60}, {"MIDI out", 0, 1, 1},
-    /* the envelopes: 0..100 steps, geometric, 0 ms to 10 s (a linear 0..10000 would want 10000
-     * detents); 0 is the pluck as it was, and the chord's release the 0.18 s it had */
-    {"Str A", 0, ENV_STEPS, 0}, {"Str R", 0, ENV_STEPS, ENV_STEPS}, {"Chd A", 0, ENV_STEPS, 0},
+    /* the envelopes: 0..100 steps, geometric; 0 is the pluck as it was, and the chord's release the
+     * 0.18 s it had. An attack tops at 2.5 s, a release at 10 s */
+    {"Str A", 0, ENV_STEPS, 0}, {"Str R", 0, ENV_STEPS, 77}, {"Chd A", 0, ENV_STEPS, 0},
     {"Chd R", 0, ENV_STEPS, 42},
 };
 
@@ -36,16 +38,18 @@ const om_rhythm_t *om_rhythm(int i) { return &OM_RHYTHM[(unsigned)i < OM_NRHYTHM
 
 const om_param_t *om_param_info(int i) { return (i >= 0 && i < P_NPARAMS) ? &PARAMS[i] : &PARAMS[0]; }
 
-/* An envelope time: the knob's step (0..ENV_STEPS) as milliseconds, geometric: 0, then 10 .. 10000.
- * Geometric because 0..10000 ms in 1 ms steps is 10000 detents, and because the ear hears an envelope
- * in proportion (a 5 ms and a 50 ms attack differ; a 5000 and a 5050 do not). */
-static int env_ms(int v)
+/* An envelope time: the knob's step (0..ENV_STEPS) as milliseconds, geometric from 0, then 10 up to
+ * top. Geometric because a linear 0..top in 1 ms steps is thousands of detents, and because the ear
+ * hears an envelope in proportion (a 5 ms and a 50 ms attack differ; a 5000 and a 5050 do not). The
+ * attack stops at 2.5 s: longer than that is a fade-in, not a pluck. */
+static int env_ms(int v, int top)
 {
     if (v <= 0)
         return 0;
     if (v >= ENV_STEPS)
-        return 10000;
-    return (int)(10.0f * fm_exp2f((float)(v - 1) * (9.9658f / (float)(ENV_STEPS - 1))) + 0.5f);
+        return top;
+    return (int)(10.0f * fm_exp2f((float)(v - 1) * (fm_log2f((float)top * 0.1f) / (float)(ENV_STEPS - 1))) +
+                 0.5f);
 }
 
 static void itoa_s(int v, char *b)
@@ -84,7 +88,8 @@ void om_param_text(int i, int v, char *b)
     }
     if (i >= P_ATKH && i <= P_RELC) {              /* a time: "180 ms", "1.2s", "10.0s" */
         char *w = b;
-        int k = 0, ms = env_ms(v);
+        int k = 0, atk = (i == P_ATKH || i == P_ATKC);
+        int ms = env_ms(v, atk ? ENV_MAX_ATK : ENV_MAX_REL);
         if (ms < 1000) {
             itoa_s(ms, b);
             while (b[k])
@@ -160,7 +165,8 @@ volatile uint8_t om_ext;
 
 static int16_t par[P_NPARAMS];
 static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate;
-static float atk_h_inc = 1.0f, rel_h_mul = 1.0f;  /* the strings' envelope, per sample */
+static float atk_h_inc = 1.0f, sus_rel = 1.0f;   /* the strings' attack (per sample) and their release:
+                                                   * the natural decay's rate, stretched to Str R */
 static float atk_c_inc = 1.0f, rel_c_mul = 1.0f;  /* the chord and its bass's */
 static float pan_l[OM_NSTR], pan_r[OM_NSTR];
 static int root, type;
@@ -195,7 +201,7 @@ static inline float adv(float pos, float inc)
 /* ---- harp strings */
 typedef struct {
     float pos, inc, v, g, y1, y2, k, c, m, modamt;
-    float a, r;                                /* the envelope's attack ramp (0..1) and release (1..0) */
+    float a;                                   /* the envelope's attack ramp (0..1) */
     uint16_t shim_off;
     uint8_t on, note, rel;
 } str_t;
@@ -226,7 +232,6 @@ static void strum(int s)
     v->inc = note_inc(n);
     v->v = 1.0f;
     v->a = atk_h_inc < 1.0f ? 0.0f : 1.0f;        /* a pluck, or a ramp from silence (Str A) */
-    v->r = 1.0f;
     v->rel = 0;
     /* the voice filter: Chordian's per-note brightness, darker as the note decays */
     base = fm_maxf(((18.0f - u) / 18.0f) * 0.31f + 0.34f, 0.05f);
@@ -503,21 +508,23 @@ static void apply(int p, int v)
             om_midi_out(0xB0, 123, 0);            /* all notes off, as it goes quiet */
         break;
     case P_ATKH: {
-        int ms = env_ms(v);
+        int ms = env_ms(v, ENV_MAX_ATK);
         atk_h_inc = ms > 0 ? 1.0f / ((float)ms * 0.001f * OM_SR) : 1.0f;   /* linear, from silence */
         break;
     }
-    case P_RELH:
+    case P_RELH: {                                /* the string's decay, stretched to die in Str R: the
+                                                   * natural law (1.16) keeps its darkening shape */
+        int ms = env_ms(v, ENV_MAX_REL);
+        sus_rel = ms > 0 ? 1.16f / ((float)ms * 0.001f * OM_SR) : 1.0f;
+        break;
+    }
     case P_RELC: {                                /* exponential: 60 dB in the time, as a synth's */
-        int ms = env_ms(v);
-        if (p == P_RELH)
-            rel_h_mul = ms > 0 ? fm_exp2f(-9.9658f / ((float)ms * 0.001f * OM_SR)) : 0.0f;
-        else
-            rel_c_mul = ms > 0 ? fm_exp2f(-9.9658f / ((float)ms * 0.001f * OM_SR)) : 0.0f;
+        int ms = env_ms(v, ENV_MAX_REL);
+        rel_c_mul = ms > 0 ? fm_exp2f(-9.9658f / ((float)ms * 0.001f * OM_SR)) : 0.0f;
         break;
     }
     case P_ATKC: {
-        int ms = env_ms(v);
+        int ms = env_ms(v, ENV_MAX_ATK);
         atk_c_inc = ms > 0 ? 1.0f / ((float)ms * 0.001f * OM_SR) : 1.0f;
         break;
     }
@@ -667,7 +674,8 @@ static void render_strings(uint32_t n)
     for (s = 0; s < OM_NSTR; s++) {
         str_t *v = &str[s];
         float pos = v->pos, y1 = v->y1, y2 = v->y2, e = v->v, g = v->g, c = v->c, m = v->m;
-        float av = v->a, rv = v->r;
+        float av = v->a;
+        const float decay = v->rel ? sus_rel : sus_rate;   /* let go: the decay stretched to Str R */
         const float inc = v->inc, gl = pan_l[s], gr = pan_r[s];
         uint32_t j;
         if (!v->on) {
@@ -687,23 +695,16 @@ static void render_strings(uint32_t n)
             y1 += c * (x1 - y1);
             y2 += c * (x2 - y2);
             g += 0.05f * (e - g);
-            o = (y1 * g1 + y2 * g2) * g * (av * rv);
+            o = (y1 * g1 + y2 * g2) * g * av;
             mixl[j] += o * gl;
             mixr[j] += o * gr;
             send[j] += o * rsend;
             pos = adv(pos, inc);
-            e -= sus_rate * (0.34f + 8.5f * e * e * e);
+            e -= decay * (0.34f + 8.5f * e * e * e);   /* the string's decay, or its release */
             if (av < 1.0f) {                        /* the pluck's attack ramp (Str A) */
                 av += atk_h_inc;
                 if (av > 1.0f)
                     av = 1.0f;
-            }
-            if (v->rel) {                           /* let go: the release (Str R), exponential */
-                rv *= rel_h_mul;
-                if (rv <= 1e-4f) {
-                    rv = 0.0f;
-                    e = 0.0f;
-                }
             }
             if (e <= 0.0f) {
                 e = 0.0f;
@@ -722,8 +723,7 @@ static void render_strings(uint32_t n)
         v->c = c;
         v->m = m;
         v->a = av;
-        v->r = rv;
-        om_str_level[s] = v->on ? e * av * rv : 0.0f;
+        om_str_level[s] = v->on ? e * av : 0.0f;
     }
     shim_ph += shim_rate * (float)n;
     while (shim_ph >= 360.0f)

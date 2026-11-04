@@ -35,8 +35,9 @@ enum {
     P_REVERB, P_SPACE, P_TUNE, P_CREV,                /* the strings' reverb send, reverb size, tune (cents),
                                                        * the chord and bass's reverb send (the drums are dry) */
     P_TRANSPOSE, P_OCTAVE, P_WIDTH, P_MIDI,           /* semitones, harp octave, stereo width, MIDI out */
-    P_ATKH, P_RELH, P_ATKC, P_RELC,                   /* the envelopes, ms (0..10000): the strings' attack (linear)
-                                                       * and release (exponential), and the chord and bass's */
+    P_ATKH, P_RELH, P_ATKC, P_RELC,                   /* the envelopes, in 0..100 steps: an attack 0..2.5 s
+                                                       * (linear), a release 0..10 s (exponential); the strings'
+                                                       * and the chord and its bass's */
     P_NPARAMS
 };
 typedef struct {
