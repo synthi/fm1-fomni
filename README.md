@@ -43,13 +43,12 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 - **SEQ: Rhythm.** Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).
 - **FX: Sound.** Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.
 - **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). KNOB 3 and 4 are Transpose and Octave.
-- **GLO: Setup.** Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).
-- **GLO again: Setup 2.** Palette (KNOB 1, twenty-six colour schemes, tried on the page as you turn) and
-  Size (KNOB 2: Normal, four cards; Large, two rows of two, which gives the values more room). Seven of
-  the palettes come from Sanzo Wada's *A Dictionary of Color Combinations* (1933–34): the combination's
-  hues, lifted for a 240 px screen — and beside HIGH CONTRAST there is HIGH ROSE, high contrast in pinks
-  and violets. The page shows the palette's name, its colours as samples, and the chord buttons drawn in
-  it. Leaving the settings keeps what was chosen: the project is saved on the way out.
+- **GLO: Colours.** Palette (KNOB 1, thirty-four colour schemes, tried on the page as you turn) and Size
+  (KNOB 2: Normal, four cards; Large, two rows of two, which gives the values more room). The page shows
+  the palette's name, its colours as samples, and the chord buttons drawn in it. Leaving the settings
+  keeps what was chosen: the project is saved on the way out.
+- **GLO again: Setup.** Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so
+  they can be read; Keys: the key lights only; Off).
 - **ENV: Envelope.** Str A and Str R (the strings' attack and release), Chd A and Chd R (the chord and its
   bass). The attack is a straight line up, the release the string's own decay stretched or an exponential
   fall for the chord; the attack goes from 0 ms to 2.5 s, the release from 0 ms to 10 s (a geometric knob:
@@ -61,12 +60,24 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 
 ### Colours
 
-Nineteen palettes, from **AUBERGINE** (the dark one a fresh FM-1 starts in) and **NIGHT ROSE** to **CREAM**, the
-light one, **MONO**, **HIGH CONTRAST**, and five taken from Patagonia (P ROSE, P VIOLET, P SAKURA, P TERRA,
-P AQUA). They live in `firmware/src/app/palettes.h`, eight colours each; the rules, the labels and the pale
-tints are blended from them. Every pair the screen draws is checked for its WCAG contrast (7:1 for a value,
-4.5:1 for a label) and for surviving the panel's RGB565 by `tools/check_palettes.py`, which `tests/run_tests.sh`
-runs: a palette that would be hard on a tired eye does not build.
+Thirty-four palettes, from **AUBERGINE** (the dark one a fresh FM-1 starts in) and **NIGHT ROSE** to
+**CREAM**, the light one, **MONO**, **HIGH CONTRAST**, and five taken from Patagonia (P ROSE, P VIOLET,
+P TERRA, P AQUA, and SAKURA, which is now a Wada combination). They live in
+`firmware/src/app/palettes.h`, eight colours each; the rules, the labels and the pale tints are blended
+from them. Every pair the screen draws is checked for its WCAG contrast (7:1 for a value, 4.5:1 for a
+label, 6.8:1 for a label on the paper) and for surviving the panel's RGB565 by
+`tools/check_palettes.py`, which `tests/run_tests.sh` runs: a palette that would be hard on a tired eye
+does not build.
+
+The **W.** ones are Sanzo Wada's *A Dictionary of Color Combinations* (1933–34): the hues of one of its
+348 combinations, lifted for a 240 px screen. Their paper is nearly black — the value the rest of the
+table keeps, so a bright background never washes the letters out — except for five with a **pale paper**
+and dark letters, for a room in daylight (W. SPINEL a rose, W. LILAC a lavender, W. MINT a mint,
+W. BUFF a buff, W. GLAUCOUS a sky). Each one takes a different corner of the wheel: no two share a
+paper's hue, and the three accents (the strings, the chord, the rhythm) are chosen as far apart as the
+combination allows, so flipping through them is not the same screen twice. Pinks and violets are five
+of them — NIGHT ROSE, SAKURA, W. EOSINE, W. SPINEL, W. COTINGA — which is the FM-1's own colour, and
+HIGH ROSE is HIGH CONTRAST's pink-and-violet counterpart.
 
 **Voice 1** is the Omnichord's shimmering harp, and **Voice 2** is its plain one. Mix them, and
 set how long the strings ring with **Sustain**.

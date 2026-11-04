@@ -76,27 +76,53 @@ wait 80
 shot p18-p-aqua.png
 spin K1 1
 wait 80
-shot p19-wada-carmine.png
+shot p19-w-carmine.png
 spin K1 1
 wait 80
-shot p20-wada-salvia.png
+shot p20-w-salvia.png
 spin K1 1
 wait 80
-shot p21-wada-violet.png
+shot p21-w-violet.png
 spin K1 1
 wait 80
-shot p22-wada-cotinga.png
+shot p22-w-cotinga.png
 spin K1 1
 wait 80
-shot p23-wada-umber.png
+shot p23-w-umber.png
 spin K1 1
 wait 80
-shot p24-wada-eugenia.png
+shot p24-w-eugenia.png
 spin K1 1
 wait 80
 shot p25-high-rose.png
+spin K1 1
+wait 80
+shot p26-w-tyrian.png
+spin K1 1
+wait 80
+shot p27-w-eosine.png
+spin K1 1
+wait 80
+shot p28-w-khaki.png
+spin K1 1
+wait 80
+shot p29-w-spinel.png
+spin K1 1
+wait 80
+shot p30-w-lilac.png
+spin K1 1
+wait 80
+shot p31-w-mint.png
+spin K1 1
+wait 80
+shot p32-w-buff.png
+spin K1 1
+wait 80
+shot p33-w-glaucous.png
 # the knob band's size (KNOB 2), on AUBERGINE and on AMBER NIGHT
-spin K1 -24
+spin K1 -40                         # clamps to 0: CREAM
+wait 80
+spin K1 1                           # AUBERGINE
 wait 80
 spin K2 1
 wait 100
